@@ -3,6 +3,7 @@ import React from "react";
 import { useUser, UserButton } from "@clerk/nextjs";
 import { FaGithub } from "react-icons/fa";
 import Head from "next/head";
+import Contect from "./_components/Contect";
 
 const HomePage = () => {
   const { user } = useUser();
@@ -110,14 +111,8 @@ const HomePage = () => {
 
       {/* Contact Section */}
       <section id="contact" className="py-16 bg-white px-6 md:px-0">
-        <div className="container mx-auto text-center">
-          <h2 className="text-4xl font-bold text-gray-800">Get in Touch</h2>
-          <p className="mt-4 text-lg text-gray-800">Have questions? Feel free to contact us.</p>
-          <a href="mailto:support@aimockinterview.com" className="mt-6 inline-block px-6 py-3 text-lg font-semibold bg-blue-600 text-white rounded-lg shadow-lg hover:bg-blue-700">
-            Contact Us
-          </a>
-        </div>
-      </section>
+          <Contect />
+        </section>
     </div>
   );
 };
