@@ -13,7 +13,9 @@
   "dependencies": {
     "@clerk/nextjs": "^5.1.5",
     "@clerk/themes": "^2.1.9",
+    "@emailjs/browser": "^4.4.1",
     "@google/generative-ai": "^0.13.0",
+    "@headlessui/react": "^2.2.0",
     "@hookform/resolvers": "^3.7.0",
     "@material-tailwind/react": "^2.1.9",
     "@neondatabase/serverless": "^0.9.5",
