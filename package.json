@@ -29,6 +29,7 @@
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.31.4",
     "framer-motion": "^11.2.12",
+    "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.395.0",
     "mini-svg-data-uri": "^1.4.4",
     "moment": "^2.30.1",

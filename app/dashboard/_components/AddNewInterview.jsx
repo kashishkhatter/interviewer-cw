@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Dialog,
   DialogContent,
@@ -25,14 +25,45 @@ const AddNewInterview = () => {
   const [jobDesc, setJobDesc] = useState("");
   const [jobExperience, setJobExperience] = useState("");
   const [loading, setLoading] = useState(false);
-  const [jsonResponse, setJsonResponse] = useState([]);
+  const [error, setError] = useState("");
+  const [jwtUserEmail, setJwtUserEmail] = useState(null);
 
   const router = useRouter();
   const { user } = useUser();
 
+  // Check for JWT token and get user email
+  useEffect(() => {
+    const verifyJwtToken = async () => {
+      const token = sessionStorage.getItem('jwt_token');
+      if (token) {
+        try {
+          const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token }),
+          });
+
+          const data = await response.json();
+          if (data.isValid) {
+            setJwtUserEmail(data.userData.email);
+          }
+        } catch (error) {
+          console.error('Error verifying JWT token:', error);
+        }
+      }
+    };
+
+    verifyJwtToken();
+  }, []);
+
   const onSubmit = async (e) => {
     e.preventDefault();
     setLoading(true);
+    setError("");
+
+    const interviewId = uuidv4();
 
     const InputPrompt = `
       Job Positions: ${jobPosition}, 
@@ -42,6 +73,7 @@ const AddNewInterview = () => {
     `;
 
     try {
+      console.log('Generating interview questions...');
       const result = await chatSession.sendMessage(InputPrompt);
 
       const MockJsonResp = result.response
@@ -50,34 +82,46 @@ const AddNewInterview = () => {
         .replace("```", "")
         .trim();
 
-      console.log(JSON.parse(MockJsonResp));
-      setJsonResponse(MockJsonResp);
+      console.log('Generated questions:', MockJsonResp);
 
+      // Validate JSON response
+      const parsedJson = JSON.parse(MockJsonResp);
+      if (!Array.isArray(parsedJson) || !parsedJson.length) {
+        throw new Error('Invalid response format from AI');
+      }
+
+      // Determine user email - prefer Clerk over JWT
+      const userEmail = user?.primaryEmailAddress?.emailAddress || jwtUserEmail;
+      if (!userEmail) {
+        throw new Error('No authenticated user found');
+      }
+
+      console.log('Saving to database with user email:', userEmail);
       const resp = await db
         .insert(MockInterview)
         .values({
-          mockId: uuidv4(),
+          mockId: interviewId,
           jsonMockResp: MockJsonResp,
           jobPosition: jobPosition,
           jobDesc: jobDesc,
           jobExperience: jobExperience,
-          createdBy: user?.primaryEmailAddress?.emailAddress,
+          createdBy: userEmail,
           createdAt: moment().format("DD-MM-YYYY"),
         })
-        .returning({ mockId: MockInterview.mockId });
+        .returning();
 
-      console.log(resp);
-      // Close dialog and redirect
+      console.log('Database response:', resp);
 
-      //  const mockId = Date.now(); // Example unique ID
-      //   localStorage.setItem(`mockInterviewData-${mockId}`, MockJsonResp);
-      //   push(`/dashboard/interview/${mockId}`);
-      if (resp) {
+      if (resp && resp.length > 0) {
+        console.log('Redirecting to interview page...');
         setOpenDialog(false);
-        router.push("/dashboard/interview/" + resp[0]?.mockId);
+        router.push(`/dashboard/interview/${interviewId}`);
+      } else {
+        throw new Error('Failed to create interview record');
       }
     } catch (error) {
       console.error("Error generating interview:", error);
+      setError(error.message || "Failed to create interview. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -144,18 +188,27 @@ const AddNewInterview = () => {
                   </div>
                 </div>
 
+                {error && (
+                  <div className="my-3 p-3 text-sm text-red-600 bg-red-50 rounded">
+                    {error}
+                  </div>
+                )}
+
                 <div className="flex gap-5 justify-end">
                   <Button
                     type="button"
                     variant="ghost"
-                    onClick={() => setOpenDialog(false)}
+                    onClick={() => {
+                      setOpenDialog(false);
+                      setError("");
+                    }}
                   >
                     Cancel
                   </Button>
                   <Button type="submit" disabled={loading}>
                     {loading ? (
                       <>
-                        <LoaderCircle className="animate-spin" />
+                        <LoaderCircle className="animate-spin mr-2" />
                         Generating From AI
                       </>
                     ) : (

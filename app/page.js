@@ -1,12 +1,105 @@
 "use client";
-import React from "react";
-import { useUser, UserButton } from "@clerk/nextjs";
-import { FaGithub } from "react-icons/fa";
+import React, { useEffect, useState } from "react";
 import Head from "next/head";
 import Contect from "./_components/Contect";
+import { useRouter } from "next/navigation";
+import Header from "./_components/Header";
+import { useAuth as useClerkAuth } from "@clerk/nextjs";
 
 const HomePage = () => {
-  const { user } = useUser();
+  const { isLoaded: clerkLoaded, isSignedIn: clerkSignedIn } = useClerkAuth();
+  const router = useRouter();
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  // Check for JWT token when component mounts
+  useEffect(() => {
+    const verifyTokenAndStore = async () => {
+      // First check sessionStorage
+      const storedToken = sessionStorage.getItem('jwt_token');
+      const params = new URLSearchParams(window.location.search);
+      const urlToken = params.get('token');
+      const token = storedToken || urlToken;
+      
+      if (token) {
+        setIsVerifying(true);
+        console.log('Found token, verifying...');
+        try {
+          const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token }),
+          });
+
+          const data = await response.json();
+          
+          if (data.isValid) {
+            console.log('Token is valid, storing...');
+            sessionStorage.setItem('jwt_token', token);
+            // Clean URL if token was in URL
+            if (urlToken) {
+              window.history.replaceState({}, '', '/');
+              // Redirect to dashboard since we have a valid token from URL
+              router.push('/dashboard');
+            }
+          }
+        } catch (error) {
+          console.error('Error verifying token:', error);
+        } finally {
+          setIsVerifying(false);
+        }
+      }
+    };
+
+    verifyTokenAndStore();
+  }, [router]);
+
+  const handleGetStarted = async (e) => {
+    e.preventDefault();
+    console.log('Get Started clicked');
+
+    // Don't proceed if we're still verifying a token
+    if (isVerifying) {
+      console.log('Still verifying token, please wait...');
+      return;
+    }
+
+    // First check if user is signed in with Clerk
+    if (clerkSignedIn) {
+      console.log('User is signed in with Clerk, redirecting to dashboard');
+      router.push('/dashboard');
+      return;
+    }
+
+    // Then check for JWT token in session storage
+    const token = sessionStorage.getItem('jwt_token');
+    if (token) {
+      console.log('Found JWT token in session, verifying...');
+      try {
+        const response = await fetch('/api/auth/verify', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ token }),
+        });
+
+        const data = await response.json();
+        if (data.isValid) {
+          console.log('JWT token is valid, redirecting to dashboard');
+          router.push('/dashboard');
+          return;
+        }
+      } catch (error) {
+        console.error('Error verifying token:', error);
+      }
+    }
+
+    // If no valid authentication, redirect to sign-in
+    console.log('No valid authentication found, redirecting to sign-in');
+    router.push('/sign-in');
+  };
 
   return (
     <div>
@@ -16,38 +109,19 @@ const HomePage = () => {
         <link rel="icon" href="/favicon.ico" />
       </Head>
 
-      {/* Header Section */}
-      <header className="w-full py-8 bg-gray-100 shadow-md">
-        <div className="container mx-auto flex justify-between items-center px-6">
-          <h1 className="text-3xl font-bold text-primary">AI Mock Interview</h1>
-          <nav className="flex items-center space-x-6">
-            <a href="#features" className="text-lg text-gray-800">Features</a>
-            <a href="#testimonials" className="text-lg text-gray-800">Testimonials</a>
-            <a href="#contact" className="text-lg text-gray-800">Contact</a>
-
-            {/* GitHub Link */}
-            <a
-              target="_blank"
-              rel="noopener noreferrer"
-              href="https://github.com/kashishkhatter/AI-MockInterviewer"
-            >
-              <FaGithub className="w-10 h-8" />
-            </a>
-
-            {/* Clerk User Dropdown (Same as Header) */}
-            {user && <UserButton afterSignOutUrl="/" />}
-          </nav>
-        </div>
-      </header>
+      <Header showNavLinks={true} />
 
       {/* Hero Section */}
       <section className="flex flex-col items-center justify-center text-center py-20 bg-gradient-to-r from-gray-900 to-gray-400 px-6 md:px-0">
         <h2 className="text-4xl md:text-5xl font-bold text-white">Ace Your Next Interview</h2>
         <p className="mt-4 text-lg md:text-xl text-white">Practice with AI-powered mock interviews and get personalized feedback</p>
         <div className="mt-6 flex flex-col md:flex-row">
-          <a href="/dashboard" className="px-6 py-3 mb-4 md:mb-0 md:mr-4 text-lg font-semibold bg-white text-primary-600 rounded-lg shadow-lg hover:bg-gray-100">
+          <button
+            onClick={handleGetStarted}
+            className="px-6 py-3 mb-4 md:mb-0 md:mr-4 text-lg font-semibold bg-white text-primary-600 rounded-lg shadow-lg hover:bg-gray-100"
+          >
             Get Started
-          </a>
+          </button>
           <a href="#features" className="px-6 py-3 text-lg font-semibold border border-white rounded-lg hover:bg-white hover:text-black-600">
             Learn More
           </a>
@@ -111,8 +185,8 @@ const HomePage = () => {
 
       {/* Contact Section */}
       <section id="contact" className="py-16 bg-white px-6 md:px-0">
-          <Contect />
-        </section>
+        <Contect />
+      </section>
     </div>
   );
 };
