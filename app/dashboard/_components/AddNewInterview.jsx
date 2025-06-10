@@ -13,8 +13,6 @@ import { Textarea } from "@/components/ui/textarea";
 import { chatSession } from "@/utils/GeminiAIModal";
 import { LoaderCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { db } from "@/utils/db";
-import { MockInterview } from "@/utils/schema";
 import { v4 as uuidv4 } from "uuid";
 import { useUser } from "@clerk/nextjs";
 import moment from "moment";
@@ -96,28 +94,34 @@ const AddNewInterview = () => {
         throw new Error('No authenticated user found');
       }
 
-      console.log('Saving to database with user email:', userEmail);
-      const resp = await db
-        .insert(MockInterview)
-        .values({
-          mockId: interviewId,
-          jsonMockResp: MockJsonResp,
-          jobPosition: jobPosition,
-          jobDesc: jobDesc,
-          jobExperience: jobExperience,
-          createdBy: userEmail,
-          createdAt: moment().format("DD-MM-YYYY"),
-        })
-        .returning();
+      console.log('Creating interview...');
+      const response = await fetch('/api/db', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'createInterview',
+          data: {
+            mockId: interviewId,
+            jsonMockResp: MockJsonResp,
+            jobPosition: jobPosition,
+            jobDesc: jobDesc,
+            jobExperience: jobExperience,
+            createdBy: userEmail,
+            createdAt: moment().format("DD-MM-YYYY")
+          }
+        }),
+      });
 
-      console.log('Database response:', resp);
+      const data = await response.json();
 
-      if (resp && resp.length > 0) {
-        console.log('Redirecting to interview page...');
+      if (data.success) {
+        console.log('Interview created successfully:', data);
         setOpenDialog(false);
         router.push(`/dashboard/interview/${interviewId}`);
       } else {
-        throw new Error('Failed to create interview record');
+        throw new Error(data.error || 'Failed to create interview');
       }
     } catch (error) {
       console.error("Error generating interview:", error);

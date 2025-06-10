@@ -1,32 +1,37 @@
 "use client";
-import { db } from "@/utils/db";
-import { MockInterview } from "@/utils/schema";
-import { eq } from "drizzle-orm";
-import { Lightbulb, WebcamIcon } from "lucide-react";
 import React, { useEffect, useState } from "react";
+import { Lightbulb, WebcamIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import Webcam from "react-webcam";
 import Link from "next/link";
 import { useContext } from "react";
 import { WebCamContext } from "../../layout";
+import { getInterviewDetails } from "@/utils/actions";
 
 const Interview = ({ params }) => {
   const { webCamEnabled, setWebCamEnabled } = useContext(WebCamContext);
   const [interviewData, setInterviewData] = useState();
-  // const [webCamEnabled, setWebCamEnebled] = useState(false);
+  const [loading, setLoading] = useState(true);
+
   useEffect(() => {
-    console.log(params.interviewId);
     GetInterviewDetails();
   }, []);
 
   const GetInterviewDetails = async () => {
-    const result = await db
-      .select()
-      .from(MockInterview)
-      .where(eq(MockInterview.mockId, params.interviewId));
-
-    setInterviewData(result[0]);
+    try {
+      const result = await getInterviewDetails(params.interviewId);
+      setInterviewData(result[0]);
+    } catch (error) {
+      console.error('Error fetching interview details:', error);
+    } finally {
+      setLoading(false);
+    }
   };
+
+  if (loading) {
+    return <div>Loading...</div>;
+  }
+
   return (
     <div className="my-10">
       <h2 className="font-bold text-2xl text-center">Let's Get Started</h2>

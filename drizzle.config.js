@@ -1,8 +1,17 @@
 /** @type { import("drizzle-kit").Config } */
 export default {
     schema: "./utils/schema.js",
-    dialect: 'postgresql',
+    out: "./drizzle",
+    driver: 'mysql2',
+    dialect: 'mysql',
     dbCredentials: {
-        url: 'postgresql://neondb_owner:npg_CFUzPVg0rnh2@ep-winter-sun-a8rbgqeu-pooler.eastus2.azure.neon.tech/neondb?sslmode=require',
+        host: 'db1.studentdetails.com',
+        user: 'elevate',
+        password: 'interview_waves',
+        database: 'triangles',
+        port: 3306,
+        ssl: {
+            rejectUnauthorized: false
+        }
     }
 };

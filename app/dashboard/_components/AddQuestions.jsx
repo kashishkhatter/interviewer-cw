@@ -1,5 +1,5 @@
 "use client";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 
 import {
   Dialog,
@@ -25,182 +25,228 @@ const AddQuestions = () => {
   const [openDailog, setOpenDialog] = useState(false);
   const [jobPosition, setJobPosition] = useState("");
   const [jobDesc, setJobDesc] = useState("");
+  const [jobExperience, setJobExperience] = useState("");
   const [typeQuestion, setTypeQuestion] = useState("");
   const [company, setCompany] = useState("");
-  const [jobExperience, setJobExperience] = useState();
   const [loading, setLoading] = useState(false);
-  const [questionJsonResponse, setQuestionJsonResponse] = useState([]);
-  const { user } = useUser();
+  const [error, setError] = useState("");
+  const [jwtUserEmail, setJwtUserEmail] = useState(null);
+
   const router = useRouter();
-  const handleInputChange = (setState) => (e) => {
-    setState(e.target.value);
-  };
+  const { user } = useUser();
+
+  // Check for JWT token and get user email
+  useEffect(() => {
+    const verifyJwtToken = async () => {
+      const token = sessionStorage.getItem('jwt_token');
+      if (token) {
+        try {
+          const response = await fetch('/api/auth/verify', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ token }),
+          });
+
+          const data = await response.json();
+          if (data.isValid) {
+            setJwtUserEmail(data.userData.email);
+          }
+        } catch (error) {
+          console.error('Error verifying JWT token:', error);
+        }
+      }
+    };
+
+    verifyJwtToken();
+  }, []);
 
   const onSubmit = async (e) => {
-    setLoading(true);
     e.preventDefault();
-    console.log(
-      "Data",
-      jobPosition,
-      jobDesc,
-      typeQuestion,
-      company,
-      jobExperience
-    );
+    setLoading(true);
+    setError("");
+
+    const mockId = uuidv4();
 
     const InputPrompt = `
-    Job Positions: ${jobPosition},
-    Job Description: ${jobDesc},
-    Years of Experience: ${jobExperience},
-    Which type of question: ${typeQuestion},
-    This company previous question: ${company},
-    Based on this information, please provide 5 interview questions with answers in JSON format.
-    Each question and answer should be fields in the JSON. Ensure "Question" and "Answer" are fields.
-}  
-  `;
-    console.log("InputPrompt:", InputPrompt);
+      Job Positions: ${jobPosition}, 
+      Job Description: ${jobDesc}, 
+      Years of Experience: ${jobExperience},
+      Question Type: ${typeQuestion},
+      Company: ${company}. 
+      Based on this information, please provide 5 interview questions with answers in JSON format, ensuring "Question" and "Answer" are fields in the JSON.
+    `;
 
     try {
+      console.log('Generating questions...');
       const result = await chatSession.sendMessage(InputPrompt);
+
       const MockQuestionJsonResp = result.response
         .text()
         .replace("```json", "")
         .replace("```", "")
         .trim();
-      // console.log("Parsed data", JSON.parse(MockQuestionJsonResp));
-      
-      console.log("JSON RESPONSE", MockQuestionJsonResp);
-      // console.log("Parsed RESPONSE", JSON.parse(MockQuestionJsonResp))
 
-      if (MockQuestionJsonResp) {
-        const resp = await db
-          .insert(Question)
-          .values({
-            mockId: uuidv4(),
-            MockQuestionJsonResp: MockQuestionJsonResp,
-            jobPosition: jobPosition,
-            jobDesc: jobDesc,
-            jobExperience: jobExperience,
-            typeQuestion: typeQuestion,
-            company: company,
-            createdBy: user?.primaryEmailAddress?.emailAddress,
-            createdAt: moment().format("YYYY-MM-DD"),
-          })
-          .returning({ mockId: Question.mockId });
+      console.log('Generated questions:', MockQuestionJsonResp);
 
-        console.log("Inserted ID:", resp);
+      // Validate JSON response
+      const parsedJson = JSON.parse(MockQuestionJsonResp);
+      if (!Array.isArray(parsedJson) || !parsedJson.length) {
+        throw new Error('Invalid response format from AI');
+      }
 
-        if (resp) {
-          setOpenDialog(false);
+      // Determine user email - prefer Clerk over JWT
+      const userEmail = user?.primaryEmailAddress?.emailAddress || jwtUserEmail;
+      if (!userEmail) {
+        throw new Error('No authenticated user found');
+      }
 
-          router.push("/dashboard/pyq/" + resp[0]?.mockId);
-        }
+      console.log('Creating questions...');
+      const response = await fetch('/api/db', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'createQuestion',
+          data: {
+            mockId,
+            MockQuestionJsonResp,
+            jobPosition,
+            jobDesc,
+            jobExperience,
+            typeQuestion,
+            company,
+            createdBy: userEmail,
+            createdAt: moment().format("DD-MM-YYYY")
+          }
+        }),
+      });
+
+      const data = await response.json();
+
+      if (data.success) {
+        console.log('Questions created successfully:', data);
+        setOpenDialog(false);
+        router.push(`/dashboard/pyq/${mockId}`);
       } else {
-        console.log("ERROR");
+        throw new Error(data.error || 'Failed to create questions');
       }
     } catch (error) {
-      console.error("Failed to parse JSON:", error.message);
-      alert("There was an error processing the data. Please try again.");
+      console.error("Error generating questions:", error);
+      setError(error.message || "Failed to create questions. Please try again.");
     } finally {
       setLoading(false);
     }
   };
+
   return (
     <div>
       <div
         className="p-10 rounded-lg border bg-secondary hover:scale-105 hover:shadow-sm transition-all cursor-pointer"
         onClick={() => setOpenDialog(true)}
       >
-        <h2 className=" text-lg text-center">+ Add New Questions</h2>
+        <h2 className="text-lg text-center">+ Add Questions</h2>
       </div>
 
       <Dialog open={openDailog}>
-        <DialogContent>
+        <DialogContent className="max-w-2xl">
           <DialogHeader>
-            <DialogTitle>What model questions are you seeking</DialogTitle>
+            <DialogTitle className="text-2xl">Add Interview Questions</DialogTitle>
             <DialogDescription>
               <form onSubmit={onSubmit}>
                 <div className="my-3">
                   <h2>
-                    Add Details about your job position, job descritpion and
-                    years of experience
+                    Add Details about the job position, description, and
+                    experience level
                   </h2>
 
                   <div className="mt-7 my-3">
-                    <label className="text-black">Job Role/job Position</label>
+                    <label className="text-black">Job Role/Position</label>
                     <Input
                       className="mt-1"
-                      value={jobPosition}
-                      placeholder="Ex. Full stack Developer"
+                      placeholder="Ex. Full Stack Developer"
                       required
-                      onChange={handleInputChange(setJobPosition)}
+                      value={jobPosition}
+                      onChange={(e) => setJobPosition(e.target.value)}
                     />
                   </div>
-                  <div className="my-4">
+
+                  <div className="my-5">
                     <label className="text-black">
-                      Job Description/ Tech stack (In Short)
+                      Job Description/Tech Stack (In Short)
                     </label>
                     <Textarea
                       className="placeholder-opacity-50"
+                      placeholder="Ex. React, Angular, Node.js, MySQL, NoSQL, Python"
+                      required
                       value={jobDesc}
-                      placeholder="Ex. React, Angular, Nodejs, Mysql, Nosql, Python"
-                      required
-                      onChange={handleInputChange(setJobDesc)}
+                      onChange={(e) => setJobDesc(e.target.value)}
                     />
                   </div>
-                  <div className="my-4">
-                    <label className="text-black">
-                      Type of Questions (In Short)
-                    </label>
-                    <Input
-                      className="placeholder-opacity-50"
-                      value={typeQuestion}
-                      placeholder="Ex. CPP, Leetcode, Domain based"
-                      required
-                      onChange={handleInputChange(setTypeQuestion)}
-                    />
-                  </div>
-                  <div className="my-4">
-                    <label className="text-black">
-                      Company are you seeking
-                    </label>
-                    <Input
-                      className="mt-1"
-                      value={company}
-                      placeholder="Ex. Microsoft, Apple, Google, Mercedes"
-                      required
-                      onChange={handleInputChange(setCompany)}
-                    />
-                  </div>
-                  <div className="my-4">
+
+                  <div className="my-5">
                     <label className="text-black">Years of Experience</label>
                     <Input
                       className="mt-1"
                       placeholder="Ex. 5"
-                      value={jobExperience}
                       max="50"
                       type="number"
                       required
-                      onChange={handleInputChange(setJobExperience)}
+                      value={jobExperience}
+                      onChange={(e) => setJobExperience(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="my-5">
+                    <label className="text-black">Question Type</label>
+                    <Input
+                      className="mt-1"
+                      placeholder="Ex. Technical, Behavioral, System Design"
+                      required
+                      value={typeQuestion}
+                      onChange={(e) => setTypeQuestion(e.target.value)}
+                    />
+                  </div>
+
+                  <div className="my-5">
+                    <label className="text-black">Company</label>
+                    <Input
+                      className="mt-1"
+                      placeholder="Ex. Google, Amazon, Microsoft"
+                      required
+                      value={company}
+                      onChange={(e) => setCompany(e.target.value)}
                     />
                   </div>
                 </div>
+
+                {error && (
+                  <div className="my-3 p-3 text-sm text-red-600 bg-red-50 rounded">
+                    {error}
+                  </div>
+                )}
+
                 <div className="flex gap-5 justify-end">
                   <Button
                     type="button"
-                    variant="goast"
-                    onClick={() => setOpenDialog(false)}
+                    variant="ghost"
+                    onClick={() => {
+                      setOpenDialog(false);
+                      setError("");
+                    }}
                   >
                     Cancel
                   </Button>
                   <Button type="submit" disabled={loading}>
                     {loading ? (
                       <>
-                        <LoaderCircle className="animate-spin" />
-                        Generating From AI
+                        <LoaderCircle className="animate-spin mr-2" />
+                        Generating Questions
                       </>
                     ) : (
-                      "Prep. Questions"
+                      "Add Questions"
                     )}
                   </Button>
                 </div>

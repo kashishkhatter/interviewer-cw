@@ -7,12 +7,11 @@ import Webcam from "react-webcam";
 import { Mic } from "lucide-react";
 import { toast } from "sonner";
 import { chatSession } from "@/utils/GeminiAIModal";
-import { db } from "@/utils/db";
-import { UserAnswer } from "@/utils/schema";
 import { useUser } from "@clerk/nextjs";
 import moment from "moment";
 import { WebCamContext } from "@/app/dashboard/layout";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import { saveUserAnswer } from "@/utils/server-actions";
 
 const RecordAnswerSection = ({
   mockInterviewQuestion,
@@ -55,7 +54,7 @@ const RecordAnswerSection = ({
       setIsRecording(true);
     } catch (error) {
       console.error("Error starting recording:", error);
-      toast(
+      toast.error(
         "Error starting recording. Please check your microphone permissions."
       );
     }
@@ -81,28 +80,32 @@ const RecordAnswerSection = ({
         let result;
         let attempts = 0;
         while (attempts < 3) {
-          // Retry up to 3 times
           try {
             result = await model.generateContent([
               "Transcribe the following audio:",
               { inlineData: { data: base64Audio, mimeType: "audio/webm" } },
             ]);
-            break; // Exit loop on success
+            break;
           } catch (err) {
             attempts++;
-            console.error(`Attempt ${attempts} failed:`, err);
-            await new Promise((resolve) => setTimeout(resolve, 2000)); // 2 sec delay before retry
+            console.error(`Transcription attempt ${attempts} failed:`, err);
+            if (attempts < 3) {
+              await new Promise((resolve) => setTimeout(resolve, 2000));
+            }
           }
         }
 
-        if (!result) throw new Error("Failed after retries");
+        if (!result) {
+          toast.error("Failed to transcribe audio after multiple attempts");
+          return;
+        }
 
         const transcription = result.response.text();
         setUserAnswer((prevAnswer) => prevAnswer + " " + transcription);
       };
     } catch (error) {
       console.error("Error transcribing audio:", error);
-      toast("Error transcribing audio. Please try again.");
+      toast.error("Error transcribing audio. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -112,54 +115,98 @@ const RecordAnswerSection = ({
     try {
       setLoading(true);
 
-      if (!mockInterviewQuestion[activeQuestionIndex]) {
+      if (!mockInterviewQuestion || !mockInterviewQuestion[activeQuestionIndex]) {
+        console.error("Missing question data:", { mockInterviewQuestion, activeQuestionIndex });
         throw new Error("No question found for the current index.");
       }
 
       if (!userAnswer.trim()) {
-        toast("Answer cannot be empty.");
+        toast.error("Answer cannot be empty.");
         return;
       }
 
-      const feedbackPrompt = `Question: ${mockInterviewQuestion[activeQuestionIndex]?.Question}, 
-        User Answer: ${userAnswer}. 
-        Please provide a rating and improvement feedback in JSON format like {"rating": X, "feedback": "text"}.`;
+      const currentQuestion = mockInterviewQuestion[activeQuestionIndex].Question;
+      console.log("Processing answer for question:", currentQuestion);
 
+      const feedbackPrompt = `
+        Question: ${currentQuestion}
+        User Answer: ${userAnswer}
+        Please analyze the answer and provide feedback in the following JSON format:
+        {
+          "rating": (number between 1-10),
+          "feedback": "detailed feedback explaining the rating and suggestions for improvement"
+        }
+        Ensure the response is valid JSON.
+      `;
+
+      console.log("Requesting AI feedback...");
       const result = await chatSession.sendMessage(feedbackPrompt);
-      let MockJsonResp = result.response.text();
-      MockJsonResp = MockJsonResp.replace("```json", "").replace("```", "");
+      let feedbackText = result.response.text();
+      console.log("Raw AI feedback:", feedbackText);
 
+      // Clean and parse the JSON response
       let jsonFeedbackResp;
       try {
-        jsonFeedbackResp = JSON.parse(MockJsonResp);
+        // Remove any markdown formatting or extra text
+        const jsonMatch = feedbackText.match(/\{[\s\S]*\}/);
+        if (!jsonMatch) {
+          throw new Error("No valid JSON found in AI response");
+        }
+        jsonFeedbackResp = JSON.parse(jsonMatch[0]);
+        
+        if (!jsonFeedbackResp.rating || !jsonFeedbackResp.feedback) {
+          throw new Error("Missing required fields in AI response");
+        }
       } catch (e) {
-        console.error("JSON Parsing Error:", MockJsonResp);
-        throw new Error("Invalid AI response format.");
+        console.error("JSON Parsing Error:", e);
+        console.log("Attempted to parse:", feedbackText);
+        throw new Error("Failed to process AI feedback. Please try again.");
       }
 
-      console.log("User Answer:", userAnswer);
-      console.log("Feedback Response:", jsonFeedbackResp);
+      console.log("Processed feedback:", jsonFeedbackResp);
 
-      const resp = await db.insert(UserAnswer).values({
-        mockIdRef: interviewData?.mockId || "N/A",
-        question:
-          mockInterviewQuestion[activeQuestionIndex]?.Question || "Unknown",
-        correctAns:
-          mockInterviewQuestion[activeQuestionIndex]?.Answer || "Unknown",
-        userAns: userAnswer,
-        feedback: jsonFeedbackResp?.feedback || "No feedback",
-        rating: jsonFeedbackResp?.rating || 0,
-        userEmail: user?.primaryEmailAddress?.emailAddress || "No email",
-        createdAt: moment().format("YYYY-MM-DD"),
+      const answerData = {
+        mockId: interviewData?.mockId,
+        question: currentQuestion,
+        correctAns: mockInterviewQuestion[activeQuestionIndex].Answer,
+        userAns: userAnswer.trim(),
+        feedback: jsonFeedbackResp.feedback,
+        rating: String(jsonFeedbackResp.rating),
+        userEmail: user?.primaryEmailAddress?.emailAddress || "anonymous",
+        createdAt: moment().format("YYYY-MM-DD")
+      };
+
+      // Validate required fields
+      const requiredFields = ['mockId', 'question', 'correctAns', 'userAns', 'feedback', 'rating'];
+      const missingFields = requiredFields.filter(field => !answerData[field]);
+      if (missingFields.length > 0) {
+        throw new Error(`Missing required fields: ${missingFields.join(', ')}`);
+      }
+
+      console.log("Saving answer data:", answerData);
+      const response = await fetch('/api/db', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'saveUserAnswer',
+          data: answerData
+        }),
       });
 
-      if (resp) {
-        toast("User Answer recorded successfully");
-        setUserAnswer("");
+      const data = await response.json();
+
+      if (!data.success) {
+        console.error("Save response error:", data);
+        throw new Error(data.error || data.details || "Failed to save answer");
       }
+
+      toast.success("Answer recorded successfully!");
+      setUserAnswer("");
     } catch (error) {
-      console.error("Error recording answer:", error);
-      toast("An error occurred while recording the user answer.");
+      console.error("Error in updateUserAnswer:", error);
+      toast.error(error.message || "An error occurred while recording your answer. Please try again.");
     } finally {
       setLoading(false);
     }
@@ -202,6 +249,11 @@ const RecordAnswerSection = ({
           )}
         </Button>
       </div>
+      {loading && (
+        <div className="mt-4 text-sm text-gray-500">
+          {isRecording ? "Processing recording..." : "Saving your answer..."}
+        </div>
+      )}
     </div>
   );
 };

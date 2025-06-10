@@ -1,50 +1,45 @@
+import { verifyToken } from '@/utils/jwt';
 import { NextResponse } from 'next/server';
-import jwt from 'jsonwebtoken';
-
-const JWT_SECRET = 'secert';
 
 export async function POST(request) {
   try {
-    const body = await request.json();
-    const token = body.token;
-
+    const { token } = await request.json();
+    
     if (!token) {
-      return NextResponse.json({ isValid: false, error: 'No token provided' }, { status: 401 });
+      return NextResponse.json(
+        { 
+          isValid: false, 
+          error: 'No token provided' 
+        },
+        { status: 400 }
+      );
     }
 
-    // Verify token
-    const decoded = jwt.verify(token, JWT_SECRET, { algorithms: ['HS256'] });
+    const result = verifyToken(token);
     
-    const userData = {
-      id: decoded.sub,
-      email: decoded.user_email,
-      username: decoded.username,
-      roles: decoded.roles,
-      tenant: decoded.tenant
-    };
+    if (!result.isValid) {
+      return NextResponse.json(
+        { 
+          isValid: false, 
+          error: result.error 
+        },
+        { status: 401 }
+      );
+    }
 
-    // Set token in cookie
-    const response = NextResponse.json({ 
-      isValid: true, 
-      userData 
-    }, { status: 200 });
-
-    // Set secure cookie with token
-    response.cookies.set('jwt_token', token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === 'production',
-      sameSite: 'lax',
-      maxAge: 60 * 60 * 24 // 24 hours
+    return NextResponse.json({
+      isValid: true,
+      userData: result.userData
     });
-
-    return response;
-
   } catch (error) {
-    console.error('Token verification error:', error);
-    return NextResponse.json({ 
-      isValid: false, 
-      error: error.message 
-    }, { status: 401 });
+    console.error('Error verifying token:', error);
+    return NextResponse.json(
+      { 
+        isValid: false, 
+        error: error.message 
+      },
+      { status: 500 }
+    );
   }
 }
 

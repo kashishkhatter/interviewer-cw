@@ -19,7 +19,6 @@ const poolConnection = mysql.createPool({
     keepAliveInitialDelay: 0,
     multipleStatements: false, // For security
     debug: process.env.NODE_ENV === 'development',
-    // Add connection retry logic
     connectTimeout: 10000, // 10 seconds
     acquireTimeout: 10000
 });
